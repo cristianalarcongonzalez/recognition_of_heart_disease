@@ -7,6 +7,9 @@ Procedemos a instalar las dependencias necesarias
 para esto instalamos tensor flow 
 pip install numpy pandas librosa matplotlib scikit-learn tensorflow
 
+Para interfaz grafica
+pip install flet
+
 
 ## Data set 
 
