@@ -55,17 +55,25 @@ y_test = to_categorical(y_test, num_classes=num_classes)
 print(f"Dimensiones de y_train: {y_train.shape}")
 print(f"Dimensiones de y_test: {y_test.shape}")
 
-# Definir el modelo CNN
-model_cnn = Sequential([
-    Conv1D(32, kernel_size=3, activation='relu', input_shape=(13, 1)),
-    MaxPooling1D(pool_size=2),
-    Conv1D(64, kernel_size=3, activation='relu'),
-    MaxPooling1D(pool_size=2),
-    Flatten(),
-    Dense(128, activation='relu'),
-    Dropout(0.5),
-    Dense(num_classes, activation='softmax')  # Asegurarse de que num_classes sea correcto
-])
+# Función para definir el modelo CNN con parámetros personalizables
+def create_cnn_model(conv1_filters, conv2_filters, dense_units):
+    model = Sequential([
+        Conv1D(conv1_filters, kernel_size=3, activation='relu', input_shape=(13, 1)),
+        MaxPooling1D(pool_size=2),
+        Conv1D(conv2_filters, kernel_size=3, activation='relu'),
+        MaxPooling1D(pool_size=2),
+        Flatten(),
+        Dense(dense_units, activation='relu'),
+        Dropout(0.5),
+        Dense(num_classes, activation='softmax')  # Asegurarse de que num_classes sea correcto
+    ])
+    return model
+
+# Definir el modelo CNN inicial
+conv1_filters = 32
+conv2_filters = 64
+dense_units = 128
+model_cnn = create_cnn_model(conv1_filters, conv2_filters, dense_units)
 
 # Compilar el modelo CNN
 model_cnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
@@ -119,7 +127,6 @@ plt.legend(loc='upper left')
 plt.savefig("model_comparison_accuracy.png")
 plt.close()
 
-
 # Crear gráficos para mostrar los resultados
 def create_plots():
     # Conteo de etiquetas
@@ -169,37 +176,62 @@ def create_plots():
 
 create_plots()
 result_text = ft.Text()
+
 # Interfaz gráfica con flet
 def main(page: ft.Page):
     page.title = "Reconocimiento de Enfermedades Cardíacas"
     
+    selected_model = ft.Dropdown(
+        options=[
+            ft.dropdown.Option(key="CNN", text="CNN"),
+            ft.dropdown.Option(key="RNN", text="RNN")
+        ],
+        label="Selecciona el modelo",
+        value="CNN",
+        width=200
+    )
+
+    conv1_input = ft.TextField(label="Filtros de Conv1D (1ª capa)", value="32", width=200)
+    conv2_input = ft.TextField(label="Filtros de Conv1D (2ª capa)", value="64", width=200)
+    dense_input = ft.TextField(label="Unidades de Dense", value="128", width=200)
+
+    def update_model(e):
+        global model_cnn
+        conv1_filters = int(conv1_input.value)
+        conv2_filters = int(conv2_input.value)
+        dense_units = int(dense_input.value)
+        model_cnn = create_cnn_model(conv1_filters, conv2_filters, dense_units)
+        model_cnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        result_text.value = "Modelo CNN actualizado"
+        page.update()
+
+    update_button = ft.ElevatedButton("Actualizar modelo CNN", on_click=update_model)
+
     def on_file_upload(e: ft.FilePickerResultEvent):
         if e.files:
             uploaded_file_path = e.files[0].path
-            prediction_cnn, percentage_cnn = predict_heart_disease(uploaded_file_path, model_cnn, label_dict)
-            prediction_rnn, percentage_rnn = predict_heart_disease(uploaded_file_path, model_rnn, label_dict)
+            model = model_cnn if selected_model.value == "CNN" else model_rnn
+            prediction, percentage = predict_heart_disease(uploaded_file_path, model, label_dict)
             result_text.value = (
-                f"Predicción del modelo CNN: {prediction_cnn} ({percentage_cnn:.2f}%)\n"
-                f"Predicción del modelo RNN: {prediction_rnn} ({percentage_rnn:.2f}%)"
+                f"Predicción del modelo {selected_model.value}: {prediction} ({percentage:.2f}%)"
             )
             page.update()
 
     file_picker = ft.FilePicker(on_result=on_file_upload)
-    page.overlay.append(file_picker)  # Agregar file_picker a la página
+    page.overlay.append(file_picker)
 
     page.add(
         ft.Column([
             ft.Text("Sube un archivo de audio para predecir la enfermedad cardíaca:"),
+            selected_model,
+            ft.Row([conv1_input, conv2_input, dense_input]),
+            update_button,
             ft.ElevatedButton("Seleccionar archivo", on_click=lambda _: file_picker.pick_files(allow_multiple=False)),
-            result_text,  
-            ft.Image(src="model_comparison_accuracy.png"),
-            ft.Image(src="cnn_loss.png"),
-            ft.Image(src="cnn_accuracy.png"),
-            ft.Image(src="rnn_loss.png"),
-            ft.Image(src="rnn_accuracy.png")
+            result_text,
+            ft.Row([ft.Image(src="model_comparison_accuracy.png" ,width=400, height=300),
+            ft.Image(src="cnn_loss.png",width=400, height=300),ft.Image(src="cnn_accuracy.png",width=400, height=300),]),
+            ft.Row([ft.Image(src="rnn_loss.png",width=400, height=300),ft.Image(src="rnn_accuracy.png",width=400, height=300)]) 
         ])
-        
     )
 
 ft.app(target=main)
-
