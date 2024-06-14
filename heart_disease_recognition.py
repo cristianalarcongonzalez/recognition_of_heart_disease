@@ -51,10 +51,6 @@ num_classes = len(unique_labels)
 y_train = to_categorical(y_train, num_classes=num_classes)
 y_test = to_categorical(y_test, num_classes=num_classes)
 
-# Verificar las dimensiones de las etiquetas
-print(f"Dimensiones de y_train: {y_train.shape}")
-print(f"Dimensiones de y_test: {y_test.shape}")
-
 # Función para definir el modelo CNN con parámetros personalizables
 def create_cnn_model(conv1_filters, conv2_filters, dense_units):
     model = Sequential([
@@ -63,6 +59,16 @@ def create_cnn_model(conv1_filters, conv2_filters, dense_units):
         Conv1D(conv2_filters, kernel_size=3, activation='relu'),
         MaxPooling1D(pool_size=2),
         Flatten(),
+        Dense(dense_units, activation='relu'),
+        Dropout(0.5),
+        Dense(num_classes, activation='softmax')  # Asegurarse de que num_classes sea correcto
+    ])
+    return model
+
+# Función para definir el modelo RNN con parámetros personalizables
+def create_rnn_model(rnn_units, dense_units):
+    model = Sequential([
+        SimpleRNN(rnn_units, input_shape=(13, 1)),
         Dense(dense_units, activation='relu'),
         Dropout(0.5),
         Dense(num_classes, activation='softmax')  # Asegurarse de que num_classes sea correcto
@@ -78,57 +84,15 @@ model_cnn = create_cnn_model(conv1_filters, conv2_filters, dense_units)
 # Compilar el modelo CNN
 model_cnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-# Entrenar el modelo CNN
-history_cnn = model_cnn.fit(np.array(X_train).reshape(-1, 13, 1), y_train, epochs=30, batch_size=32, validation_data=(np.array(X_test).reshape(-1, 13, 1), y_test))
-
-# Evaluación del modelo CNN
-score_cnn = model_cnn.evaluate(np.array(X_test).reshape(-1, 13, 1), y_test)
-
-# Definir el modelo RNN
-model_rnn = Sequential([
-    SimpleRNN(100, input_shape=(13, 1)),
-    Dense(128, activation='relu'),
-    Dropout(0.5),
-    Dense(num_classes, activation='softmax')  # Asegurarse de que num_classes sea correcto
-])
+# Definir el modelo RNN inicial
+rnn_units = 100
+model_rnn = create_rnn_model(rnn_units, dense_units)
 
 # Compilar el modelo RNN
 model_rnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-# Entrenar el modelo RNN
-history_rnn = model_rnn.fit(np.array(X_train).reshape(-1, 13, 1), y_train, epochs=30, batch_size=32, validation_data=(np.array(X_test).reshape(-1, 13, 1), y_test))
-
-# Evaluación del modelo RNN
-score_rnn = model_rnn.evaluate(np.array(X_test).reshape(-1, 13, 1), y_test)
-
-# Comparativa de modelos
-comparison_result = "El modelo CNN tiene mejor rendimiento." if score_cnn[1] > score_rnn[1] else "El modelo RNN tiene mejor rendimiento."
-
-# Función para predecir la enfermedad cardíaca a partir de un nuevo archivo de audio
-def predict_heart_disease(file_path, model, label_dict):
-    audio, sr = librosa.load(file_path, sr=None)
-    features = extract_features(audio).reshape(1, -1, 1)
-    prediction = model.predict(features)
-    predicted_label = np.argmax(prediction)
-    predicted_label_name = list(label_dict.keys())[list(label_dict.values()).index(predicted_label)]
-    prediction_percentage = np.max(prediction) * 100  # Obtener el porcentaje de la predicción
-    return predicted_label_name, prediction_percentage
-
-# Generar gráfica comparativa de precisión de los modelos
-plt.figure(figsize=(10, 5))
-plt.plot(history_cnn.history['accuracy'], label='Precisión de entrenamiento CNN')
-plt.plot(history_cnn.history['val_accuracy'], label='Precisión de validación CNN')
-plt.plot(history_rnn.history['accuracy'], label='Precisión de entrenamiento RNN')
-plt.plot(history_rnn.history['val_accuracy'], label='Precisión de validación RNN')
-plt.title('Comparativa de precisión de los modelos')
-plt.xlabel('Épocas')
-plt.ylabel('Precisión')
-plt.legend(loc='upper left')
-plt.savefig("model_comparison_accuracy.png")
-plt.close()
-
 # Crear gráficos para mostrar los resultados
-def create_plots():
+def create_plots(history_cnn, history_rnn):
     # Conteo de etiquetas
     plt.figure(figsize=(10, 6))
     plt.bar(label_counts.keys(), label_counts.values())
@@ -156,6 +120,7 @@ def create_plots():
     plt.legend()
     plt.savefig('cnn_accuracy.png')
 
+    # Pérdida y precisión del entrenamiento RNN
     plt.figure(figsize=(10, 6))
     plt.plot(history_rnn.history['loss'], label='Entrenamiento - Pérdida')
     plt.plot(history_rnn.history['val_loss'], label='Validación - Pérdida')
@@ -174,13 +139,22 @@ def create_plots():
     plt.legend()
     plt.savefig('rnn_accuracy.png')
 
-create_plots()
-result_text = ft.Text()
+# Función para actualizar el modelo CNN con nuevos parámetros desde la interfaz
+def update_cnn_model(conv1_filters, conv2_filters, dense_units):
+    global model_cnn
+    model_cnn = create_cnn_model(conv1_filters, conv2_filters, dense_units)
+    model_cnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Función para actualizar el modelo RNN con nuevos parámetros desde la interfaz
+def update_rnn_model(rnn_units, dense_units):
+    global model_rnn
+    model_rnn = create_rnn_model(rnn_units, dense_units)
+    model_rnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
 # Interfaz gráfica con flet
 def main(page: ft.Page):
     page.title = "Reconocimiento de Enfermedades Cardíacas"
-    
+
     selected_model = ft.Dropdown(
         options=[
             ft.dropdown.Option(key="CNN", text="CNN"),
@@ -193,20 +167,46 @@ def main(page: ft.Page):
 
     conv1_input = ft.TextField(label="Filtros de Conv1D (1ª capa)", value="32", width=200)
     conv2_input = ft.TextField(label="Filtros de Conv1D (2ª capa)", value="64", width=200)
-    dense_input = ft.TextField(label="Unidades de Dense", value="128", width=200)
+    cnn_dense_input = ft.TextField(label="Unidades de Dense (CNN)", value="128", width=200)
 
-    def update_model(e):
-        global model_cnn
+    rnn_units_input = ft.TextField(label="Unidades de RNN", value="100", width=200)
+    rnn_dense_input = ft.TextField(label="Unidades de Dense (RNN)", value="128", width=200)
+
+    epochs_input = ft.TextField(label="Número de épocas", value="30", width=200)
+
+    result_text = ft.Text()
+
+    def update_models(e):
         conv1_filters = int(conv1_input.value)
         conv2_filters = int(conv2_input.value)
-        dense_units = int(dense_input.value)
-        model_cnn = create_cnn_model(conv1_filters, conv2_filters, dense_units)
-        model_cnn.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-        result_text.value = "Modelo CNN actualizado"
+        cnn_dense_units = int(cnn_dense_input.value)
+
+        rnn_units = int(rnn_units_input.value)
+        rnn_dense_units = int(rnn_dense_input.value)
+
+        epochs = int(epochs_input.value)
+
+        global model_cnn, model_rnn
+
+        update_cnn_model(conv1_filters, conv2_filters, cnn_dense_units)
+        update_rnn_model(rnn_units, rnn_dense_units)
+
+        history_cnn = model_cnn.fit(
+            np.array(X_train).reshape(-1, 13, 1), y_train,
+            epochs=epochs, batch_size=32,
+            validation_data=(np.array(X_test).reshape(-1, 13, 1), y_test)
+        )
+        history_rnn = model_rnn.fit(
+            np.array(X_train).reshape(-1, 13, 1), y_train,
+            epochs=epochs, batch_size=32,
+            validation_data=(np.array(X_test).reshape(-1, 13, 1), y_test)
+        )
+        create_plots(history_cnn, history_rnn)
+        result_text.value = "Modelos actualizados y entrenados con los nuevos parámetros."
         page.update()
+  
 
-    update_button = ft.ElevatedButton("Actualizar modelo CNN", on_click=update_model)
-
+    update_button = ft.ElevatedButton("Actualizar y entrenar modelos", on_click=update_models)
     def on_file_upload(e: ft.FilePickerResultEvent):
         if e.files:
             uploaded_file_path = e.files[0].path
@@ -219,18 +219,25 @@ def main(page: ft.Page):
 
     file_picker = ft.FilePicker(on_result=on_file_upload)
     page.overlay.append(file_picker)
-
     page.add(
         ft.Column([
             ft.Text("Sube un archivo de audio para predecir la enfermedad cardíaca:"),
             selected_model,
-            ft.Row([conv1_input, conv2_input, dense_input]),
+            ft.Row([conv1_input, conv2_input, cnn_dense_input]),
+            ft.Row([rnn_units_input, rnn_dense_input]),
+            epochs_input,
             update_button,
             ft.ElevatedButton("Seleccionar archivo", on_click=lambda _: file_picker.pick_files(allow_multiple=False)),
             result_text,
-            ft.Row([ft.Image(src="model_comparison_accuracy.png" ,width=400, height=300),
-            ft.Image(src="cnn_loss.png",width=400, height=300),ft.Image(src="cnn_accuracy.png",width=400, height=300),]),
-            ft.Row([ft.Image(src="rnn_loss.png",width=400, height=300),ft.Image(src="rnn_accuracy.png",width=400, height=300)]) 
+            ft.Row([
+                ft.Image(src="model_comparison_accuracy.png", width=400, height=300),
+                ft.Image(src="cnn_loss.png", width=400, height=300),
+                ft.Image(src="cnn_accuracy.png", width=400, height=300),
+            ]),
+            ft.Row([
+                ft.Image(src="rnn_loss.png", width=400, height=300),
+                ft.Image(src="rnn_accuracy.png", width=400, height=300)
+            ])
         ])
     )
 
